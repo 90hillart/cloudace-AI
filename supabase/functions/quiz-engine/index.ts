@@ -1,3 +1,4 @@
+
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -12,6 +13,30 @@ const json = (body: unknown, status = 200) =>
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+
+function isOptionsObject(
+  value: unknown
+): value is Record<string, string> {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>);
+
+  return (
+    entries.length >= 2 &&
+    entries.every(
+      ([key, label]) =>
+        /^[A-D]$/.test(key) &&
+        typeof label === "string" &&
+        label.trim().length > 0
+    )
+  );
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -53,10 +78,13 @@ Deno.serve(async (req: Request) => {
     } = await authClient.auth.getUser(token);
 
     if (authError || !user) {
-      return json({ error: "Your session is invalid. Please sign in again." }, 401);
+      return json(
+        { error: "Your session is invalid. Please sign in again." },
+        401
+      );
     }
 
-    // This client is server-only. Never put its key in VITE_* variables.
+    // Server-side privileged client. Never expose its key in frontend code.
     const admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: {
         persistSession: false,
@@ -69,8 +97,10 @@ Deno.serve(async (req: Request) => {
     if (body.action === "start") {
       const topicId =
         typeof body.topic_id === "string" ? body.topic_id : null;
+
       const difficulty =
         typeof body.difficulty === "string" ? body.difficulty : null;
+
       const requestedCount = Number(body.count ?? 10);
 
       if (
@@ -95,25 +125,49 @@ Deno.serve(async (req: Request) => {
         )
         .eq("active", true);
 
-      if (topicId) query = query.eq("topic_id", topicId);
-      if (difficulty) query = query.eq("difficulty", difficulty);
+      if (topicId) {
+        query = query.eq("topic_id", topicId);
+      }
+
+      if (difficulty) {
+        query = query.eq("difficulty", difficulty);
+      }
 
       const { data: candidateQuestions, error: questionError } =
         await query.limit(200);
 
       if (questionError) {
-        console.error("Question selection failed.");
+        console.error("Question selection failed:", questionError.message);
         return json({ error: "Could not load practice questions." }, 500);
       }
 
       if (!candidateQuestions?.length) {
-        return json({
-          error: "No questions match those settings yet. Try another topic or difficulty.",
-        }, 404);
+        return json(
+          {
+            error:
+              "No questions match those settings yet. Try another topic or difficulty.",
+          },
+          404
+        );
       }
 
-      // Only choose questions with answer keys. Never return the keys.
-      const candidateIds = candidateQuestions.map((q) => q.id);
+      // Exclude questions whose options don't match the required JSON object.
+      const validQuestions = candidateQuestions.filter((question) =>
+        isOptionsObject(question.options)
+      );
+
+      if (!validQuestions.length) {
+        return json(
+          {
+            error:
+              "No questions have valid options yet. Check the question data in Supabase.",
+          },
+          500
+        );
+      }
+
+      // Check answer-key availability without returning the keys.
+      const candidateIds = validQuestions.map((question) => question.id);
 
       const { data: keyedQuestions, error: keysError } = await admin
         .from("question_keys")
@@ -121,7 +175,7 @@ Deno.serve(async (req: Request) => {
         .in("question_id", candidateIds);
 
       if (keysError) {
-        console.error("Question availability check failed.");
+        console.error("Question availability check failed:", keysError.message);
         return json({ error: "Could not prepare the quiz." }, 500);
       }
 
@@ -129,11 +183,11 @@ Deno.serve(async (req: Request) => {
         (keyedQuestions ?? []).map((item) => item.question_id)
       );
 
-      const eligible = candidateQuestions.filter((q) =>
-        availableIds.has(q.id)
+      const eligible = validQuestions.filter((question) =>
+        availableIds.has(question.id)
       );
 
-      // Fisher–Yates shuffle on the server.
+      // Fisher–Yates shuffle.
       for (let i = eligible.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
@@ -145,9 +199,13 @@ Deno.serve(async (req: Request) => {
       );
 
       if (!selected.length) {
-        return json({
-          error: "No ready-to-use questions are available for this selection.",
-        }, 404);
+        return json(
+          {
+            error:
+              "No ready-to-use questions with answer keys are available for this selection.",
+          },
+          404
+        );
       }
 
       const { data: attempt, error: attemptError } = await admin
@@ -159,25 +217,29 @@ Deno.serve(async (req: Request) => {
           total_questions: selected.length,
           correct_count: 0,
           status: "started",
-          question_ids: selected.map((q) => q.id),
+          question_ids: selected.map((question) => question.id),
         })
         .select("id, started_at, total_questions, status")
         .single();
 
       if (attemptError || !attempt) {
-        console.error("Quiz attempt creation failed.");
+        console.error(
+          "Quiz attempt creation failed:",
+          attemptError?.message
+        );
         return json({ error: "Could not start your quiz." }, 500);
       }
 
+      // Return questions and options only; never return answer keys.
       return json({
         attempt,
-        questions: selected.map((q) => ({
-          id: q.id,
-          topic_id: q.topic_id,
-          prompt: q.prompt,
-          options: q.options,
-          difficulty: q.difficulty,
-          objective_code: q.objective_code,
+        questions: selected.map((question) => ({
+          id: question.id,
+          topic_id: question.topic_id,
+          prompt: question.prompt,
+          options: question.options,
+          difficulty: question.difficulty,
+          objective_code: question.objective_code,
         })),
       });
     }
@@ -199,16 +261,24 @@ Deno.serve(async (req: Request) => {
         (answer: unknown) =>
           typeof answer === "object" &&
           answer !== null &&
-          typeof (answer as Record<string, unknown>).question_id === "string" &&
-          typeof (answer as Record<string, unknown>).selected_option === "string"
+          typeof (answer as Record<string, unknown>).question_id ===
+            "string" &&
+          typeof (answer as Record<string, unknown>).selected_option ===
+            "string" &&
+          /^[A-D]$/.test(
+            (answer as Record<string, string>).selected_option
+          )
       );
 
       if (!validAnswers) {
-        return json({ error: "One or more answers are invalid." }, 400);
+        return json(
+          { error: "One or more answers are invalid." },
+          400
+        );
       }
 
-      // The SQL function checks attempt ownership, exact question membership,
-      // option validity, and duplicate submission inside a transaction.
+      // The database function must validate the selected key against
+      // the question's JSON-object options and its private answer key.
       const { data: result, error: submitError } = await admin.rpc(
         "submit_quiz_attempt",
         {
@@ -219,18 +289,29 @@ Deno.serve(async (req: Request) => {
       );
 
       if (submitError) {
-        // Keep database details out of the public response.
-        console.warn("Quiz submission rejected or failed.");
-        return json({
-          error: "We couldn't submit this quiz. It may already be submitted, or your answers may be invalid.",
-        }, 400);
+        console.warn("Quiz submission failed:", submitError.message);
+        return json(
+          {
+            error:
+              "We couldn't submit this quiz. Check that every question is answered and that the database scoring function supports object-form options.",
+          },
+          400
+        );
       }
 
       return json({ result });
     }
 
     return json({ error: "Unknown quiz action." }, 400);
-  } catch {
-    return json({ error: "Unexpected quiz service error. Please try again." }, 500);
+  } catch (error) {
+    console.error(
+      "Unexpected quiz engine error:",
+      error instanceof Error ? error.message : "Unknown error"
+    );
+
+    return json(
+      { error: "Unexpected quiz service error. Please try again." },
+      500
+    );
   }
 });

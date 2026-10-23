@@ -13,7 +13,6 @@ export default function AuthForm() {
     event.preventDefault();
     setMessage("");
     setBusy(true);
-
     try {
       if (mode === "signup") {
         const data = await signUp(email, password);
