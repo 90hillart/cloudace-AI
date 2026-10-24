@@ -1,5 +1,6 @@
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 import "./Flashcards.css";
 
 type Flashcard = {
@@ -7,6 +8,11 @@ type Flashcard = {
   topic: string;
   front: string;
   back: string;
+};
+
+type SavedProgress = {
+  card_id: string;
+  status: "known" | "review";
 };
 
 const flashcards: Flashcard[] = [
@@ -175,6 +181,83 @@ export default function Flashcards() {
   const [reviewIds, setReviewIds] = useState<number[]>([]);
   const [showReviewOnly, setShowReviewOnly] = useState(false);
 
+  const [userId, setUserId] = useState<string | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  // Load this learner's progress from Supabase.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProgress() {
+      setLoadingProgress(true);
+      setMessage("");
+
+      try {
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError) throw authError;
+
+        if (!user) {
+          if (!cancelled) {
+            setUserId(null);
+            setMessage("Please sign in to load and save your flashcard progress.");
+          }
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("flashcard_progress")
+          .select("card_id, status")
+          .eq("user_id", user.id);
+
+        if (error) throw error;
+
+        if (cancelled) return;
+
+        setUserId(user.id);
+
+        const saved = (data ?? []) as SavedProgress[];
+        const validIds = new Set(flashcards.map((card) => String(card.id)));
+
+        setKnownIds(
+          saved
+            .filter(
+              (item) =>
+                item.status === "known" && validIds.has(item.card_id),
+            )
+            .map((item) => Number(item.card_id)),
+        );
+
+        setReviewIds(
+          saved
+            .filter(
+              (item) =>
+                item.status === "review" && validIds.has(item.card_id),
+            )
+            .map((item) => Number(item.card_id)),
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load flashcard progress:", error);
+          setMessage("Could not load saved progress. Please refresh and try again.");
+        }
+      } finally {
+        if (!cancelled) setLoadingProgress(false);
+      }
+    }
+
+    void loadProgress();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const deck = useMemo(() => {
     return flashcards.filter((card) => {
       const matchesTopic =
@@ -202,8 +285,47 @@ export default function Flashcards() {
     setFlipped(false);
   }
 
-  function markKnown() {
-    if (!currentCard) return;
+  async function saveCardStatus(
+    cardId: number,
+    status: "known" | "review",
+  ): Promise<boolean> {
+    if (!userId) {
+      setMessage("Please sign in before saving your flashcard progress.");
+      return false;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("flashcard_progress")
+        .upsert(
+          {
+            user_id: userId,
+            card_id: String(cardId),
+            status,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id,card_id" },
+        );
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error("Failed to save flashcard progress:", error);
+      setMessage("Could not save your progress. Please try again.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function markKnown() {
+    if (!currentCard || saving || loadingProgress) return;
+
+    const saved = await saveCardStatus(currentCard.id, "known");
+    if (!saved) return;
 
     setKnownIds((previous) =>
       previous.includes(currentCard.id)
@@ -218,8 +340,11 @@ export default function Flashcards() {
     moveTo(currentIndex + 1);
   }
 
-  function markForReview() {
-    if (!currentCard) return;
+  async function markForReview() {
+    if (!currentCard || saving || loadingProgress) return;
+
+    const saved = await saveCardStatus(currentCard.id, "review");
+    if (!saved) return;
 
     setReviewIds((previous) =>
       previous.includes(currentCard.id)
@@ -234,18 +359,47 @@ export default function Flashcards() {
     moveTo(currentIndex + 1);
   }
 
-  function resetProgress() {
-    setKnownIds([]);
-    setReviewIds([]);
-    setCurrentIndex(0);
-    setFlipped(false);
-    setShowReviewOnly(false);
+  async function resetProgress() {
+    if (saving || loadingProgress) return;
+
+    if (!userId) {
+      setMessage("Please sign in before resetting saved progress.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Reset all your saved flashcard progress? This cannot be undone.",
+    );
+
+    if (!confirmed) return;
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("flashcard_progress")
+        .delete()
+        .eq("user_id", userId);
+
+      if (error) throw error;
+
+      setKnownIds([]);
+      setReviewIds([]);
+      setCurrentIndex(0);
+      setFlipped(false);
+      setShowReviewOnly(false);
+      setSelectedTopic("All Topics");
+      setMessage("Your saved flashcard progress has been reset.");
+    } catch (error) {
+      console.error("Failed to reset flashcard progress:", error);
+      setMessage("Could not reset your progress. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  const knownCount = knownIds.filter((id) =>
-    flashcards.some((card) => card.id === id),
-  ).length;
-
+  const knownCount = knownIds.length;
   const progress = Math.round((knownCount / flashcards.length) * 100);
 
   return (
@@ -257,10 +411,26 @@ export default function Flashcards() {
           <p>Learn the key Azure concepts one card at a time.</p>
         </div>
 
-        <button className="flashcards-reset" onClick={resetProgress}>
-          Reset session
+        <button
+          className="flashcards-reset"
+          onClick={resetProgress}
+          disabled={saving || loadingProgress}
+        >
+          Reset progress
         </button>
       </header>
+
+      {message && (
+        <p role="status" aria-live="polite">
+          {message}
+        </p>
+      )}
+
+      {loadingProgress && (
+        <p role="status">Loading your saved flashcard progress...</p>
+      )}
+
+      {saving && <p role="status">Saving your progress...</p>}
 
       <div className="flashcards-stats">
         <div className="flashcard-stat">
@@ -291,7 +461,9 @@ export default function Flashcards() {
             style={{ width: `${progress}%` }}
           />
         </div>
-        <span>{knownCount} of {flashcards.length} cards marked known</span>
+        <span>
+          {knownCount} of {flashcards.length} cards marked known
+        </span>
       </div>
 
       <div className="flashcards-filters">
@@ -342,7 +514,9 @@ export default function Flashcards() {
             </span>
 
             <span className="flashcard-hint">
-              {flipped ? "Click to see the question" : "Click to reveal the answer"}
+              {flipped
+                ? "Click to see the question"
+                : "Click to reveal the answer"}
             </span>
           </button>
 
@@ -350,6 +524,7 @@ export default function Flashcards() {
             <button
               className="flashcard-secondary"
               onClick={() => moveTo(currentIndex - 1)}
+              disabled={saving || loadingProgress}
             >
               ← Previous
             </button>
@@ -357,11 +532,16 @@ export default function Flashcards() {
             <button
               className="flashcard-review"
               onClick={markForReview}
+              disabled={saving || loadingProgress || !userId}
             >
               ↻ Review again
             </button>
 
-            <button className="flashcard-known" onClick={markKnown}>
+            <button
+              className="flashcard-known"
+              onClick={markKnown}
+              disabled={saving || loadingProgress || !userId}
+            >
               ✓ Know it
             </button>
 
@@ -391,8 +571,9 @@ export default function Flashcards() {
       )}
 
       <p className="flashcards-note">
-        Your progress currently lasts for this browser session.
-        Sign in to a future saved-progress feature to keep your learning history.
+        {userId
+          ? "Your flashcard progress is saved to your account."
+          : "Sign in to save your flashcard progress across sessions."}
       </p>
     </section>
   );
