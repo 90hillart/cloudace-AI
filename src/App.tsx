@@ -9,6 +9,7 @@ import { supabase } from "./lib/supabase";
 import QuizPage from "./components/QuizPage";
 import TopicMastery from "./components/TopicMastery";
 import StudyBuddy from "./components/StudyBuddy";
+import Flashcards from "./components/Flashcards";
 
 type LessonProgressRow = {
   course_id: string;
@@ -41,7 +42,12 @@ type QuizPerformance = {
   latestScore: number | null;
 };
 
-type ActivePage = "dashboard" | "courses" | "quiz" | "study-buddy";
+type ActivePage =
+  | "dashboard"
+  | "courses"
+  | "quiz"
+  | "study-buddy"
+  | "flashcards";
 
 export default function App() {
   const { user, loading } = useLearner();
@@ -95,7 +101,9 @@ export default function App() {
       const courseRows = (coursesResult.data ?? []) as CourseProgressRow[];
 
       setCompletedLessons(
-        lessonRows.filter((row) => row.completed).map((row) => row.lesson_id)
+        lessonRows
+          .filter((row) => row.completed)
+          .map((row) => row.lesson_id)
       );
 
       const savedProgress: Record<string, number> = {};
@@ -385,6 +393,16 @@ export default function App() {
           >
             ✦ &nbsp; AI Study Buddy
           </button>
+
+          <button
+            type="button"
+            className={`nav-item ${
+              activePage === "flashcards" ? "active" : ""
+            }`}
+            onClick={() => navigateTo("flashcards")}
+          >
+            ▣ &nbsp; Flashcards
+          </button>
         </nav>
 
         <div className="sidebar-bottom">
@@ -406,6 +424,8 @@ export default function App() {
           <QuizPage />
         ) : activePage === "study-buddy" ? (
           <StudyBuddy />
+        ) : activePage === "flashcards" ? (
+          <Flashcards />
         ) : (
           <>
             <header className="topbar">

@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import "./StudyBuddy.css";
 
 type Mode = "chat" | "explain" | "questions";
+
 type Message = {
   role: "user" | "assistant";
   content: string;
@@ -25,6 +26,50 @@ const examples: Record<Mode, string[]> = {
     "Test my knowledge of Azure pricing and support.",
   ],
 };
+
+async function getFunctionErrorDetails(error: unknown): Promise<string> {
+  if (!(error instanceof Error)) {
+    return "An unexpected error occurred while contacting the AI service.";
+  }
+
+  const functionError = error as Error & {
+    context?: Response;
+  };
+
+  const response = functionError.context;
+
+  if (response) {
+    try {
+      const responseCopy = response.clone();
+      const responseText = await responseCopy.text();
+
+      if (responseText) {
+        try {
+          const parsed = JSON.parse(responseText) as {
+            error?: string;
+            message?: string;
+            msg?: string;
+          };
+
+          return (
+            parsed.error ||
+            parsed.message ||
+            parsed.msg ||
+            responseText
+          );
+        } catch {
+          return responseText;
+        }
+      }
+
+      return `The server returned HTTP ${response.status} ${response.statusText}.`;
+    } catch {
+      return `The request failed: ${error.message}`;
+    }
+  }
+
+  return error.message;
+}
 
 export default function StudyBuddy() {
   const [mode, setMode] = useState<Mode>("chat");
@@ -60,10 +105,16 @@ export default function StudyBuddy() {
         error: sessionError,
       } = await supabase.auth.getSession();
 
-      if (sessionError) throw sessionError;
+      if (sessionError) {
+        throw new Error(
+          `Could not verify your session: ${sessionError.message}`,
+        );
+      }
 
       if (!session) {
-        throw new Error("Please sign in again to use the AI Study Buddy.");
+        throw new Error(
+          "You are not signed in. Please sign in again and retry.",
+        );
       }
 
       const { data, error: functionError } =
@@ -78,10 +129,20 @@ export default function StudyBuddy() {
           },
         });
 
-      if (functionError) throw functionError;
+      if (functionError) {
+        const details = await getFunctionErrorDetails(functionError);
 
-      if (!data?.reply) {
-        throw new Error("The AI returned an empty response. Please try again.");
+        throw new Error(`Study Buddy error: ${details}`);
+      }
+
+      if (data?.error) {
+        throw new Error(`Study Buddy error: ${data.error}`);
+      }
+
+      if (typeof data?.reply !== "string" || !data.reply.trim()) {
+        throw new Error(
+          "The server responded, but no AI reply was returned. Check your Supabase function logs.",
+        );
       }
 
       setMessages((current) => [
@@ -89,12 +150,13 @@ export default function StudyBuddy() {
         { role: "assistant", content: data.reply },
       ]);
     } catch (err) {
-      const message =
+      const errorMessage =
         err instanceof Error
           ? err.message
-          : "Something went wrong. Please try again.";
+          : "An unexpected error occurred. Please try again.";
 
-      setError(message);
+      console.error("CloudAce Study Buddy request failed:", err);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -104,10 +166,16 @@ export default function StudyBuddy() {
     <section className="study-buddy">
       <header className="study-buddy-header">
         <div>
-          <span className="study-buddy-eyebrow">CLOUDA CE AI LEARNING</span>
+          <span className="study-buddy-eyebrow">
+            CLOUDA CE AI LEARNING
+          </span>
           <h1>AI Study Buddy</h1>
-          <p>Your personal assistant for mastering Microsoft Azure fundamentals.</p>
+          <p>
+            Your personal assistant for mastering Microsoft Azure
+            fundamentals.
+          </p>
         </div>
+
         <span className="study-buddy-icon" aria-hidden="true">
           ✦
         </span>
@@ -117,20 +185,25 @@ export default function StudyBuddy() {
         <button
           type="button"
           className={mode === "chat" ? "active" : ""}
+          aria-pressed={mode === "chat"}
           onClick={() => setMode("chat")}
         >
           💬 Ask AI
         </button>
+
         <button
           type="button"
           className={mode === "explain" ? "active" : ""}
+          aria-pressed={mode === "explain"}
           onClick={() => setMode("explain")}
         >
           📘 Explain a Topic
         </button>
+
         <button
           type="button"
           className={mode === "questions" ? "active" : ""}
+          aria-pressed={mode === "questions"}
           onClick={() => setMode("questions")}
         >
           🎯 Practice Questions
@@ -148,7 +221,7 @@ export default function StudyBuddy() {
               className="study-buddy-example"
               key={example}
               disabled={loading}
-              onClick={() => sendMessage(example)}
+              onClick={() => void sendMessage(example)}
             >
               {example}
               <span aria-hidden="true">↗</span>
@@ -158,8 +231,8 @@ export default function StudyBuddy() {
           <div className="study-buddy-tip">
             <strong>Study tip</strong>
             <p>
-              Ask for practical examples, then test yourself to check what
-              you have learned.
+              Ask for practical examples, then test yourself to check
+              what you have learned.
             </p>
           </div>
         </aside>
@@ -170,19 +243,21 @@ export default function StudyBuddy() {
               <h2>Your learning conversation</h2>
               <p>Focused on Azure and AZ-900 exam preparation</p>
             </div>
+
             <button
               type="button"
               className="study-buddy-clear"
               disabled={loading}
-              onClick={() =>
+              onClick={() => {
+                setError("");
                 setMessages([
                   {
                     role: "assistant",
                     content:
                       "Conversation cleared. What would you like to learn today?",
                   },
-                ])
-              }
+                ]);
+              }}
             >
               Clear chat
             </button>
@@ -197,6 +272,7 @@ export default function StudyBuddy() {
                 <span className="study-buddy-avatar">
                   {item.role === "assistant" ? "✦" : "You"}
                 </span>
+
                 <div className="study-buddy-message-content">
                   <strong>
                     {item.role === "assistant" ? "Study Buddy" : "You"}
@@ -216,7 +292,21 @@ export default function StudyBuddy() {
 
           {error && (
             <div className="study-buddy-error" role="alert">
-              {error}
+              <strong>Unable to get an AI response</strong>
+              <p>{error}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setError("");
+                  void sendMessage(
+                    messages.filter((item) => item.role === "user").at(-1)
+                      ?.content || "",
+                  );
+                }}
+                disabled={loading}
+              >
+                Try again
+              </button>
             </div>
           )}
 
@@ -227,9 +317,13 @@ export default function StudyBuddy() {
               void sendMessage();
             }}
           >
-            <label className="study-buddy-sr-only" htmlFor="study-buddy-input">
+            <label
+              className="study-buddy-sr-only"
+              htmlFor="study-buddy-input"
+            >
               Your question
             </label>
+
             <textarea
               id="study-buddy-input"
               value={input}
@@ -245,6 +339,7 @@ export default function StudyBuddy() {
               maxLength={2000}
               disabled={loading}
             />
+
             <button
               type="submit"
               disabled={loading || !input.trim()}
