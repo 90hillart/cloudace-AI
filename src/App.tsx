@@ -2,6 +2,7 @@
 import "./App.css";
 import { useCallback, useEffect, useState } from "react";
 import AuthForm from "./AuthForm";
+import PasswordResetForm from "./PasswordResetForm";
 import { useLearner } from "./useLearner";
 import { courses } from "./courses";
 import CourseView from "./CourseView";
@@ -52,6 +53,9 @@ type ActivePage =
 
 export default function App() {
   const { user, loading } = useLearner();
+
+  const isPasswordReset =
+    new URLSearchParams(window.location.search).get("password-reset") === "1";
 
   const [activePage, setActivePage] = useState<ActivePage>("dashboard");
   const [searchQuery, setSearchQuery] = useState("");
@@ -296,6 +300,12 @@ export default function App() {
       void loadQuizPerformance();
       void loadProgress();
     }
+  }
+
+  // Show the password update screen when Supabase redirects here
+  // using the password-reset=1 URL parameter.
+  if (isPasswordReset) {
+    return <PasswordResetForm />;
   }
 
   if (loading) {
