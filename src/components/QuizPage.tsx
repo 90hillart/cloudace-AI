@@ -1,5 +1,7 @@
 
 import { useEffect, useState } from "react";
+// The JavaScript client is shared across the app and does not have a declaration file.
+// @ts-ignore -- declare the module in a separate file if stricter typing is enabled.
 import { supabase } from "../lib/supabase";
 import QuizEngine from "./QuizEngine";
 

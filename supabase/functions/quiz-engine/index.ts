@@ -1,5 +1,10 @@
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+declare const Deno: {
+  serve(handler: (req: Request) => Response | Promise<Response>): void;
+  env: { get(name: string): string | undefined };
+};
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
