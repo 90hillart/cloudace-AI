@@ -6,9 +6,9 @@ import { useLearner } from "./useLearner";
 import { courses } from "./courses";
 import CourseView from "./CourseView";
 import { supabase } from "./lib/supabase";
-import QuizPage from "./components/QuizPage";
+import QuizPage from "./components/quizPage";
 import TopicMastery from "./components/TopicMastery";
-import StudyBuddy from "./components/StudyBuddy";
+import StudyBuddy from "./components/studyBuddy";
 import Flashcards from "./components/Flashcards";
 
 type LessonProgressRow = {
