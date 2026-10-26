@@ -7,7 +7,7 @@ import { courses } from "./courses";
 import CourseView from "./CourseView";
 // @ts-ignore JavaScript module without local TypeScript declarations
 import { supabase } from "./lib/supabase";
-import QuizPage from "./components/QuizPage";
+import QuizPage from "./components/quizPage";
 import TopicMastery from "./components/TopicMastery";
 import StudyBuddy from "./components/StudyBuddy";
 import Flashcards from "./components/Flashcards";
