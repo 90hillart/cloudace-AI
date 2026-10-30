@@ -1,17 +1,28 @@
 
-import "./App.css";
 import { useCallback, useEffect, useState } from "react";
+
+import "./App.css";
+
 import AuthForm from "./AuthForm";
 import PasswordResetForm from "./PasswordResetForm";
 import { useLearner } from "./useLearner";
+
 import { courses } from "./courses";
 import CourseView from "./CourseView";
-// @ts-ignore JavaScript module without local TypeScript declarations
+
 import { supabase } from "./lib/supabase";
+import { getLearnerProfile } from "./lib/onboarding";
+
 import QuizPage from "./components/QuizPage";
 import TopicMastery from "./components/TopicMastery";
 import StudyBuddy from "./components/StudyBuddy";
 import Flashcards from "./components/Flashcards";
+
+import Onboarding from "./onboarding/Onboarding";
+
+// --------------------------------------------------
+// Types
+// --------------------------------------------------
 
 type LessonProgressRow = {
   course_id: string;
@@ -51,34 +62,117 @@ type ActivePage =
   | "study-buddy"
   | "flashcards";
 
+const EMPTY_QUIZ_PERFORMANCE: QuizPerformance = {
+  completedAttempts: 0,
+  averageScore: 0,
+  bestScore: 0,
+  latestScore: null,
+};
+
+// --------------------------------------------------
+// Main application
+// --------------------------------------------------
+
 export default function App() {
   const { user, loading } = useLearner();
 
   const isPasswordReset =
     new URLSearchParams(window.location.search).get("password-reset") === "1";
 
-  const [activePage, setActivePage] = useState<ActivePage>("dashboard");
+  // Navigation
+  const [activePage, setActivePage] =
+    useState<ActivePage>("dashboard");
+
+  const [selectedCourseId, setSelectedCourseId] =
+    useState<string | null>(null);
+
+  // Course search and progress
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(
-    null
-  );
-  const [completedLessons, setCompletedLessons] = useState<string[]>([]);
-  const [progress, setProgress] = useState<Record<string, number>>({});
+
+  const [completedLessons, setCompletedLessons] =
+    useState<string[]>([]);
+
+  const [progress, setProgress] =
+    useState<Record<string, number>>({});
+
+  // Application status
   const [dataLoading, setDataLoading] = useState(true);
   const [message, setMessage] = useState("");
 
-  const [quizPerformance, setQuizPerformance] =
-    useState<QuizPerformance>({
-      completedAttempts: 0,
-      averageScore: 0,
-      bestScore: 0,
-      latestScore: null,
-    });
+  // Onboarding
+  const [onboardingLoading, setOnboardingLoading] =
+    useState(true);
 
-  const [quizStatsLoading, setQuizStatsLoading] = useState(true);
+  const [onboardingCompleted, setOnboardingCompleted] =
+    useState(false);
+
+  const [profileError, setProfileError] = useState("");
+
+  // Quiz analytics
+  const [quizPerformance, setQuizPerformance] =
+    useState<QuizPerformance>(EMPTY_QUIZ_PERFORMANCE);
+
+  const [quizStatsLoading, setQuizStatsLoading] =
+    useState(true);
+
+  // --------------------------------------------------
+  // Load learner onboarding profile
+  // --------------------------------------------------
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOnboardingProfile() {
+      if (!user) {
+        setOnboardingCompleted(false);
+        setOnboardingLoading(false);
+        setProfileError("");
+        return;
+      }
+
+      setOnboardingLoading(true);
+      setProfileError("");
+
+      try {
+        const profile = await getLearnerProfile();
+
+        if (!cancelled) {
+          setOnboardingCompleted(
+            profile?.onboarding_completed === true
+          );
+        }
+      } catch (error) {
+        console.error("Could not load learner profile:", error);
+
+        if (!cancelled) {
+          setProfileError(
+            error instanceof Error
+              ? error.message
+              : "Could not load your learner profile."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setOnboardingLoading(false);
+        }
+      }
+    }
+
+    void loadOnboardingProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  // --------------------------------------------------
+  // Load course and lesson progress
+  // --------------------------------------------------
 
   const loadProgress = useCallback(async () => {
     if (!user) {
+      setCompletedLessons([]);
+      setProgress({});
       setDataLoading(false);
       return;
     }
@@ -99,27 +193,35 @@ export default function App() {
           .eq("user_id", user.id),
       ]);
 
-      if (lessonsResult.error) throw lessonsResult.error;
-      if (coursesResult.error) throw coursesResult.error;
+      if (lessonsResult.error) {
+        throw lessonsResult.error;
+      }
 
-      const lessonRows = (lessonsResult.data ?? []) as LessonProgressRow[];
-      const courseRows = (coursesResult.data ?? []) as CourseProgressRow[];
+      if (coursesResult.error) {
+        throw coursesResult.error;
+      }
 
-      setCompletedLessons(
-        lessonRows
-          .filter((row) => row.completed)
-          .map((row) => row.lesson_id)
-      );
+      const lessonRows =
+        (lessonsResult.data ?? []) as LessonProgressRow[];
+
+      const courseRows =
+        (coursesResult.data ?? []) as CourseProgressRow[];
+
+      const completed = lessonRows
+        .filter((lesson) => lesson.completed)
+        .map((lesson) => lesson.lesson_id);
 
       const savedProgress: Record<string, number> = {};
 
-      courseRows.forEach((row) => {
-        savedProgress[row.course_id] = row.progress;
+      courseRows.forEach((course) => {
+        savedProgress[course.course_id] = course.progress;
       });
 
+      setCompletedLessons(completed);
       setProgress(savedProgress);
     } catch (error) {
       console.error("Could not load learning progress:", error);
+
       setMessage(
         error instanceof Error
           ? error.message
@@ -130,8 +232,13 @@ export default function App() {
     }
   }, [user]);
 
+  // --------------------------------------------------
+  // Load quiz performance
+  // --------------------------------------------------
+
   const loadQuizPerformance = useCallback(async () => {
     if (!user) {
+      setQuizPerformance(EMPTY_QUIZ_PERFORMANCE);
       setQuizStatsLoading(false);
       return;
     }
@@ -146,17 +253,14 @@ export default function App() {
         .eq("status", "completed")
         .order("started_at", { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
       const attempts = (data ?? []) as QuizAttemptRow[];
 
       if (attempts.length === 0) {
-        setQuizPerformance({
-          completedAttempts: 0,
-          averageScore: 0,
-          bestScore: 0,
-          latestScore: null,
-        });
+        setQuizPerformance(EMPTY_QUIZ_PERFORMANCE);
         return;
       }
 
@@ -167,34 +271,56 @@ export default function App() {
         .select("attempt_id, is_correct")
         .in("attempt_id", attemptIds);
 
-      if (answersError) throw answersError;
+      if (answersError) {
+        throw answersError;
+      }
 
       const answerRows = (answers ?? []) as QuizAnswerRow[];
 
+      // Group answers by quiz attempt.
+      const answersByAttempt = new Map<string, QuizAnswerRow[]>();
+
+      answerRows.forEach((answer) => {
+        const existing =
+          answersByAttempt.get(answer.attempt_id) ?? [];
+
+        existing.push(answer);
+
+        answersByAttempt.set(answer.attempt_id, existing);
+      });
+
+      // Calculate the score for each attempt.
       const scores = attempts.map((attempt) => {
-        const attemptAnswers = answerRows.filter(
-          (answer) => answer.attempt_id === attempt.id
-        );
+        const attemptAnswers =
+          answersByAttempt.get(attempt.id) ?? [];
 
         const correctCount = attemptAnswers.filter(
           (answer) => answer.is_correct
         ).length;
 
-        return attempt.total_questions > 0
-          ? Math.round((correctCount / attempt.total_questions) * 100)
-          : 0;
+        if (attempt.total_questions <= 0) {
+          return 0;
+        }
+
+        return Math.round(
+          (correctCount / attempt.total_questions) * 100
+        );
       });
+
+      const totalScore = scores.reduce(
+        (total, score) => total + score,
+        0
+      );
 
       setQuizPerformance({
         completedAttempts: attempts.length,
-        averageScore: Math.round(
-          scores.reduce((total, score) => total + score, 0) / scores.length
-        ),
+        averageScore: Math.round(totalScore / scores.length),
         bestScore: Math.max(...scores),
         latestScore: scores[0],
       });
     } catch (error) {
       console.error("Could not load quiz performance:", error);
+
       setMessage(
         error instanceof Error
           ? `Could not load quiz performance: ${error.message}`
@@ -204,6 +330,10 @@ export default function App() {
       setQuizStatsLoading(false);
     }
   }, [user]);
+
+  // --------------------------------------------------
+  // Load learner data after authentication
+  // --------------------------------------------------
 
   useEffect(() => {
     if (!user) {
@@ -216,16 +346,37 @@ export default function App() {
     void loadQuizPerformance();
   }, [user, loadProgress, loadQuizPerformance]);
 
+  // --------------------------------------------------
+  // Save lesson completion
+  // --------------------------------------------------
+
   const toggleLesson = useCallback(
     async (lessonId: string, completed: boolean) => {
-      if (!user) throw new Error("Please sign in again.");
+      if (!user) {
+        throw new Error("Please sign in again.");
+      }
 
       const course = courses.find((item) =>
         item.lessons.some((lesson) => lesson.id === lessonId)
       );
 
-      if (!course) throw new Error("Course not found.");
+      if (!course) {
+        throw new Error("Course not found.");
+      }
 
+      const nextCompleted = completed
+        ? [...new Set([...completedLessons, lessonId])]
+        : completedLessons.filter((id) => id !== lessonId);
+
+      const completedCount = course.lessons.filter((lesson) =>
+        nextCompleted.includes(lesson.id)
+      ).length;
+
+      const coursePercent = Math.round(
+        (completedCount / course.lessons.length) * 100
+      );
+
+      // Save lesson completion.
       const { error: lessonError } = await supabase
         .from("lesson_progress")
         .upsert(
@@ -236,23 +387,16 @@ export default function App() {
             completed,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: "user_id,lesson_id" }
+          {
+            onConflict: "user_id,lesson_id",
+          }
         );
 
-      if (lessonError) throw lessonError;
+      if (lessonError) {
+        throw lessonError;
+      }
 
-      const nextCompleted = completed
-        ? [...new Set([...completedLessons, lessonId])]
-        : completedLessons.filter((id) => id !== lessonId);
-
-      const courseCompletedCount = course.lessons.filter((lesson) =>
-        nextCompleted.includes(lesson.id)
-      ).length;
-
-      const coursePercent = Math.round(
-        (courseCompletedCount / course.lessons.length) * 100
-      );
-
+      // Save overall course progress.
       const { error: courseError } = await supabase
         .from("learner_progress")
         .upsert(
@@ -263,12 +407,17 @@ export default function App() {
             completed: coursePercent === 100,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: "user_id,course_id" }
+          {
+            onConflict: "user_id,course_id",
+          }
         );
 
-      if (courseError) throw courseError;
+      if (courseError) {
+        throw courseError;
+      }
 
       setCompletedLessons(nextCompleted);
+
       setProgress((current) => ({
         ...current,
         [course.id]: coursePercent,
@@ -279,15 +428,25 @@ export default function App() {
     [user, completedLessons]
   );
 
-  async function handleSignOut() {
+  // --------------------------------------------------
+  // Authentication
+  // --------------------------------------------------
+
+  const handleSignOut = async () => {
+    setMessage("");
+
     const { error } = await supabase.auth.signOut();
 
     if (error) {
       setMessage(`Sign out failed: ${error.message}`);
     }
-  }
+  };
 
-  function navigateTo(page: ActivePage) {
+  // --------------------------------------------------
+  // Navigation
+  // --------------------------------------------------
+
+  const navigateTo = (page: ActivePage) => {
     setActivePage(page);
     setSelectedCourseId(null);
     setMessage("");
@@ -297,30 +456,142 @@ export default function App() {
     }
 
     if (page === "dashboard") {
-      void loadQuizPerformance();
       void loadProgress();
+      void loadQuizPerformance();
     }
-  }
+  };
 
-  // Show the password update screen when Supabase redirects here
-  // using the password-reset=1 URL parameter.
-  if (isPasswordReset) {
-    return <PasswordResetForm />;
-  }
-
-  if (loading) {
-    return <p style={{ padding: 24 }}>Checking authentication...</p>;
-  }
-
-  if (!user) return <AuthForm />;
-
-  if (dataLoading) {
-    return <p style={{ padding: 24 }}>Loading your learning progress...</p>;
-  }
+  // --------------------------------------------------
+  // Derived course data
+  // --------------------------------------------------
 
   const selectedCourse = courses.find(
     (course) => course.id === selectedCourseId
   );
+
+  const completedCourseCount = courses.filter(
+    (course) => (progress[course.id] ?? 0) === 100
+  ).length;
+
+  const overallProgress =
+    courses.length > 0
+      ? Math.round(
+          courses.reduce(
+            (total, course) =>
+              total + (progress[course.id] ?? 0),
+            0
+          ) / courses.length
+        )
+      : 0;
+
+  const filteredCourses = courses.filter((course) =>
+    `${course.title} ${course.description}`
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase())
+  );
+
+  // --------------------------------------------------
+  // Screen: Password reset
+  // --------------------------------------------------
+
+  if (isPasswordReset) {
+    return <PasswordResetForm />;
+  }
+
+  // --------------------------------------------------
+  // Screen: Authentication loading
+  // --------------------------------------------------
+
+  if (loading) {
+    return (
+      <main className="onboarding-page">
+        <div className="onboarding-card">
+          <h2>Checking authentication...</h2>
+          <p>Please wait while we prepare your account.</p>
+        </div>
+      </main>
+    );
+  }
+
+  // --------------------------------------------------
+  // Screen: Sign in
+  // --------------------------------------------------
+
+  if (!user) {
+    return <AuthForm />;
+  }
+
+  // --------------------------------------------------
+  // Screen: Onboarding loading
+  // --------------------------------------------------
+
+  if (onboardingLoading) {
+    return (
+      <main className="onboarding-page">
+        <div className="onboarding-card">
+          <h2>Preparing your learning experience...</h2>
+          <p>Loading your CloudAce AI profile.</p>
+        </div>
+      </main>
+    );
+  }
+
+  // --------------------------------------------------
+  // Screen: Onboarding error
+  // --------------------------------------------------
+
+  if (profileError) {
+    return (
+      <main className="onboarding-page">
+        <div className="onboarding-card">
+          <h2>Unable to load your profile</h2>
+
+          <p>{profileError}</p>
+
+          <button
+            type="button"
+            className="continue-button"
+            onClick={() => window.location.reload()}
+          >
+            Try Again
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // --------------------------------------------------
+  // Screen: Learner onboarding
+  // --------------------------------------------------
+
+  if (!onboardingCompleted) {
+    return (
+      <Onboarding
+        onComplete={() => {
+          setOnboardingCompleted(true);
+        }}
+      />
+    );
+  }
+
+  // --------------------------------------------------
+  // Screen: Learning progress loading
+  // --------------------------------------------------
+
+  if (dataLoading) {
+    return (
+      <main className="onboarding-page">
+        <div className="onboarding-card">
+          <h2>Loading your learning progress...</h2>
+          <p>Getting your courses and saved progress.</p>
+        </div>
+      </main>
+    );
+  }
+
+  // --------------------------------------------------
+  // Screen: Selected course
+  // --------------------------------------------------
 
   if (selectedCourse) {
     return (
@@ -333,34 +604,21 @@ export default function App() {
     );
   }
 
-  const completedCourseCount = courses.filter(
-    (course) => (progress[course.id] ?? 0) === 100
-  ).length;
-
-  const overallProgress =
-    courses.length > 0
-      ? Math.round(
-          courses.reduce(
-            (total, course) => total + (progress[course.id] ?? 0),
-            0
-          ) / courses.length
-        )
-      : 0;
-
-  const filteredCourses = courses.filter((course) =>
-    `${course.title} ${course.description}`
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase())
-  );
+  // --------------------------------------------------
+  // Main dashboard layout
+  // --------------------------------------------------
 
   return (
     <div className="app-shell">
+      {/* Sidebar */}
       <aside className="sidebar">
         <h1 className="brand">
           CloudAce <span>AI</span>
         </h1>
 
-        <p className="sidebar-caption">Your learning workspace</p>
+        <p className="sidebar-caption">
+          Your learning workspace
+        </p>
 
         <p className="nav-label">Workspace</p>
 
@@ -416,8 +674,10 @@ export default function App() {
           </button>
         </nav>
 
+        {/* Account section */}
         <div className="sidebar-bottom">
           <strong>Signed in</strong>
+
           <p>{user.email}</p>
 
           <button
@@ -430,15 +690,22 @@ export default function App() {
         </div>
       </aside>
 
+      {/* Main content */}
       <main className="main-panel">
-        {activePage === "quiz" ? (
-          <QuizPage />
-        ) : activePage === "study-buddy" ? (
-          <StudyBuddy />
-        ) : activePage === "flashcards" ? (
-          <Flashcards />
-        ) : (
+        {/* Practice quiz */}
+        {activePage === "quiz" && <QuizPage />}
+
+        {/* AI Study Buddy */}
+        {activePage === "study-buddy" && <StudyBuddy />}
+
+        {/* Flashcards */}
+        {activePage === "flashcards" && <Flashcards />}
+
+        {/* Dashboard and courses */}
+        {(activePage === "dashboard" ||
+          activePage === "courses") && (
           <>
+            {/* Page header */}
             <header className="topbar">
               <div>
                 <span className="eyebrow">
@@ -466,10 +733,13 @@ export default function App() {
                 placeholder="Search courses..."
                 aria-label="Search courses"
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={(event) =>
+                  setSearchQuery(event.target.value)
+                }
               />
             </header>
 
+            {/* Dashboard overview */}
             {activePage === "dashboard" && (
               <>
                 <section
@@ -492,32 +762,44 @@ export default function App() {
                   </article>
                 </section>
 
+                {/* Quiz performance */}
                 <section
                   className="quiz-performance-section"
                   aria-label="AZ-900 quiz performance"
                 >
                   <div className="section-heading">
                     <h2>AZ-900 Quiz Performance</h2>
-                    <span className="muted">Your practice results</span>
+
+                    <span className="muted">
+                      Your practice results
+                    </span>
                   </div>
 
                   {quizStatsLoading ? (
-                    <p className="muted">Loading quiz performance...</p>
+                    <p className="muted">
+                      Loading quiz performance...
+                    </p>
                   ) : (
                     <div className="stats-grid">
                       <article className="stat-card">
                         <p>Quizzes completed</p>
-                        <h3>{quizPerformance.completedAttempts}</h3>
+                        <h3>
+                          {quizPerformance.completedAttempts}
+                        </h3>
                       </article>
 
                       <article className="stat-card">
                         <p>Average score</p>
-                        <h3>{quizPerformance.averageScore}%</h3>
+                        <h3>
+                          {quizPerformance.averageScore}%
+                        </h3>
                       </article>
 
                       <article className="stat-card">
                         <p>Best score</p>
-                        <h3>{quizPerformance.bestScore}%</h3>
+                        <h3>
+                          {quizPerformance.bestScore}%
+                        </h3>
                       </article>
 
                       <article className="stat-card">
@@ -534,8 +816,8 @@ export default function App() {
                   {!quizStatsLoading &&
                     quizPerformance.completedAttempts === 0 && (
                       <p className="muted">
-                        Complete your first practice quiz to start tracking
-                        your performance.
+                        Complete your first practice quiz to start
+                        tracking your performance.
                       </p>
                     )}
 
@@ -548,10 +830,12 @@ export default function App() {
                   </button>
                 </section>
 
+                {/* Topic mastery */}
                 <TopicMastery />
               </>
             )}
 
+            {/* Course catalogue */}
             <section id="course-catalog">
               <div className="section-heading">
                 <h2>
@@ -573,35 +857,47 @@ export default function App() {
               ) : (
                 <div className="course-grid">
                   {filteredCourses.map((course) => {
-                    const courseProgress = progress[course.id] ?? 0;
+                    const courseProgress =
+                      progress[course.id] ?? 0;
 
-                    const completedCount = course.lessons.filter((lesson) =>
-                      completedLessons.includes(lesson.id)
+                    const completedCount = course.lessons.filter(
+                      (lesson) =>
+                        completedLessons.includes(lesson.id)
                     ).length;
 
+                    const courseIcons: Record<string, string> = {
+                      "python-basics": "🐍",
+                      "data-science": "📊",
+                    };
+
                     const courseIcon =
-                      course.id === "python-basics"
-                        ? "🐍"
-                        : course.id === "data-science"
-                          ? "📊"
-                          : "🤖";
+                      courseIcons[course.id] ?? "🤖";
 
                     return (
-                      <article className="course-card" key={course.id}>
-                        <div className="course-icon" aria-hidden="true">
+                      <article
+                        className="course-card"
+                        key={course.id}
+                      >
+                        <div
+                          className="course-icon"
+                          aria-hidden="true"
+                        >
                           {courseIcon}
                         </div>
 
                         <h3>{course.title}</h3>
 
-                        <p className="muted">{course.description}</p>
+                        <p className="muted">
+                          {course.description}
+                        </p>
 
                         <p className="muted">
                           {course.lessons.length} lessons
                         </p>
 
                         <p className="muted">
-                          {completedCount} of {course.lessons.length} completed
+                          {completedCount} of{" "}
+                          {course.lessons.length} completed
                         </p>
 
                         <div
@@ -614,16 +910,22 @@ export default function App() {
                         >
                           <div
                             className="progress-fill"
-                            style={{ width: `${courseProgress}%` }}
+                            style={{
+                              width: `${courseProgress}%`,
+                            }}
                           />
                         </div>
 
-                        <strong>{courseProgress}% complete</strong>
+                        <strong>
+                          {courseProgress}% complete
+                        </strong>
 
                         <button
                           type="button"
                           className="primary-button"
-                          onClick={() => setSelectedCourseId(course.id)}
+                          onClick={() =>
+                            setSelectedCourseId(course.id)
+                          }
                         >
                           {courseProgress === 100
                             ? "Review course"
@@ -635,13 +937,14 @@ export default function App() {
                 </div>
               )}
             </section>
-
-            {message && (
-              <p className="status-message" role="status">
-                {message}
-              </p>
-            )}
           </>
+        )}
+
+        {/* Application messages */}
+        {message && (
+          <p className="status-message" role="status">
+            {message}
+          </p>
         )}
       </main>
     </div>

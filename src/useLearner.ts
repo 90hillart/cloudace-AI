@@ -1,6 +1,10 @@
 
 import { useEffect, useState } from "react";
-import type { User } from "@supabase/supabase-js";
+import type {
+  User,
+  AuthChangeEvent,
+  Session,
+} from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
 
 export function useLearner() {
@@ -18,16 +22,22 @@ export function useLearner() {
           setUser(error ? null : data.user);
         }
       } catch {
-        if (active) setUser(null);
+        if (active) {
+          setUser(null);
+        }
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     }
 
     void checkUser();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
         if (active) {
           setUser(session?.user ?? null);
           setLoading(false);
@@ -37,7 +47,7 @@ export function useLearner() {
 
     return () => {
       active = false;
-      listener.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 

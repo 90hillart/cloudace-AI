@@ -1,0 +1,322 @@
+
+.onboarding-page {
+  min-height: 100vh;
+  padding: 30px 18px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 15% 15%, rgba(0,212,255,.12), transparent 35%),
+    #07111f;
+  color: #e8f0ff;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.onboarding-card {
+  width: 100%;
+  max-width: 700px;
+  padding: 42px;
+  box-sizing: border-box;
+  border-radius: 22px;
+  background: #0b1929;
+  border: 1px solid #24374c;
+  box-shadow: 0 25px 80px rgba(0,0,0,.3);
+}
+
+.onboarding-logo {
+  font-size: 23px;
+  font-weight: 800;
+  margin-bottom: 32px;
+}
+
+.onboarding-logo strong {
+  color: #00d4ff;
+}
+
+.onboarding-label,
+.progress-info {
+  color: #00d4ff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+}
+
+.onboarding-header h1 {
+  font-size: clamp(27px, 5vw, 36px);
+  margin: 14px 0;
+  letter-spacing: -1px;
+}
+
+.onboarding-header p,
+.onboarding-step > p {
+  color: #91a4ba;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.onboarding-progress {
+  margin: 32px 0;
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.progress-info span:last-child {
+  color: #a3b5ca;
+  letter-spacing: 0;
+}
+
+.progress-track {
+  height: 6px;
+  background: #26384c;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00d4ff, #8b5cf6);
+  transition: width .3s ease;
+}
+
+.onboarding-step h2 {
+  font-size: 21px;
+  margin-bottom: 7px;
+}
+
+.interest-grid,
+.experience-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+  margin-top: 25px;
+}
+
+.interest-option,
+.experience-option {
+  position: relative;
+  min-height: 105px;
+  padding: 17px;
+  text-align: left;
+  border-radius: 12px;
+  border: 1px solid #263b52;
+  background: #101f31;
+  color: #e8f0ff;
+  cursor: pointer;
+  transition: .2s ease;
+}
+
+.interest-option {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.interest-option > span:first-child {
+  font-size: 23px;
+}
+
+.interest-option strong,
+.experience-option strong {
+  font-size: 13px;
+}
+
+.selection-indicator {
+  position: absolute;
+  right: 13px;
+  top: 13px;
+  color: #00d4ff;
+}
+
+.interest-option.selected,
+.experience-option.selected,
+.days-grid button.selected {
+  border-color: #00d4ff;
+  background: rgba(0,212,255,.09);
+}
+
+.experience-options {
+  grid-template-columns: 1fr;
+}
+
+.experience-option {
+  min-height: 76px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.experience-option span {
+  color: #91a4ba;
+  font-size: 12px;
+}
+
+.experience-option b {
+  position: absolute;
+  right: 17px;
+  top: 25px;
+  color: #00d4ff;
+}
+
+.minutes-selector {
+  margin: 30px 0;
+  padding: 20px;
+  border: 1px solid #263b52;
+  border-radius: 12px;
+  background: #101f31;
+}
+
+.minutes-selector > strong {
+  color: #00d4ff;
+  font-size: 25px;
+}
+
+.minutes-selector input {
+  display: block;
+  width: 100%;
+  margin: 22px 0 10px;
+  accent-color: #00d4ff;
+}
+
+.minutes-selector div {
+  display: flex;
+  justify-content: space-between;
+  color: #91a4ba;
+  font-size: 11px;
+}
+
+.onboarding-step h3 {
+  font-size: 14px;
+  margin: 25px 0 13px;
+}
+
+.days-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.days-grid button {
+  min-height: 42px;
+  border: 1px solid #263b52;
+  border-radius: 8px;
+  background: #101f31;
+  color: #e8f0ff;
+  cursor: pointer;
+}
+
+.onboarding-step textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 20px;
+  padding: 15px;
+  resize: vertical;
+  border: 1px solid #263b52;
+  border-radius: 10px;
+  background: #101f31;
+  color: white;
+  font: inherit;
+  outline: none;
+}
+
+.onboarding-step textarea:focus {
+  border-color: #00d4ff;
+}
+
+.goal-tip {
+  margin-top: 12px;
+  color: #00d4ff;
+  font-size: 12px;
+}
+
+.onboarding-summary {
+  margin-top: 22px;
+  padding: 16px;
+  border-radius: 10px;
+  background: #101f31;
+  border: 1px solid #263b52;
+}
+
+.onboarding-summary strong {
+  color: #00d4ff;
+  font-size: 13px;
+}
+
+.onboarding-summary p {
+  color: #a3b5ca;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.onboarding-error {
+  margin-top: 20px;
+  padding: 12px;
+  border-radius: 9px;
+  color: #ff9292;
+  background: rgba(239,68,68,.1);
+  font-size: 13px;
+}
+
+.onboarding-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 35px;
+}
+
+.back-button,
+.continue-button {
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 9px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.back-button {
+  background: transparent;
+  color: #a3b5ca;
+  border: 1px solid #263b52;
+}
+
+.continue-button {
+  flex: 1;
+  background: linear-gradient(100deg, #00bfe9, #6255e9);
+  color: white;
+  border: none;
+}
+
+.continue-button:disabled,
+.back-button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.onboarding-footer {
+  margin-top: 30px;
+  text-align: center;
+  color: #71869e;
+  font-size: 11px;
+}
+
+@media (max-width: 520px) {
+  .onboarding-card {
+    padding: 25px 18px;
+  }
+
+  .interest-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .days-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .onboarding-header h1 {
+    font-size: 27px;
+  }
+}
