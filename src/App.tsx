@@ -1,5 +1,11 @@
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 
 import "./App.css";
 
@@ -8,17 +14,18 @@ import PasswordResetForm from "./PasswordResetForm";
 import { useLearner } from "./useLearner";
 
 import { courses } from "./courses";
-import CourseView from "./CourseView";
 
 import { supabase } from "./lib/supabase";
 import { getLearnerProfile } from "./lib/onboarding";
 
-import QuizPage from "./components/QuizPage";
-import TopicMastery from "./components/TopicMastery";
-import StudyBuddy from "./components/StudyBuddy";
-import Flashcards from "./components/Flashcards";
-
 import Onboarding from "./onboarding/Onboarding";
+
+// Lazy-loaded application features
+const CourseView = lazy(() => import("./CourseView"));
+const QuizPage = lazy(() => import("./components/QuizPage"));
+const TopicMastery = lazy(() => import("./components/TopicMastery"));
+const StudyBuddy = lazy(() => import("./components/StudyBuddy"));
+const Flashcards = lazy(() => import("./components/Flashcards"));
 
 // --------------------------------------------------
 // Types
@@ -68,6 +75,21 @@ const EMPTY_QUIZ_PERFORMANCE: QuizPerformance = {
   bestScore: 0,
   latestScore: null,
 };
+
+// --------------------------------------------------
+// Loading fallback
+// --------------------------------------------------
+
+function PageLoader({ message = "Loading CloudAce AI..." }: {
+  message?: string;
+}) {
+  return (
+    <div className="page-loading" role="status" aria-live="polite">
+      <div className="loading-spinner" aria-hidden="true" />
+      <p>{message}</p>
+    </div>
+  );
+}
 
 // --------------------------------------------------
 // Main application
@@ -595,12 +617,14 @@ export default function App() {
 
   if (selectedCourse) {
     return (
-      <CourseView
-        course={selectedCourse}
-        completedLessons={completedLessons}
-        onToggleLesson={toggleLesson}
-        onBack={() => setSelectedCourseId(null)}
-      />
+      <Suspense fallback={<PageLoader message="Loading course..." />}>
+        <CourseView
+          course={selectedCourse}
+          completedLessons={completedLessons}
+          onToggleLesson={toggleLesson}
+          onBack={() => setSelectedCourseId(null)}
+        />
+      </Suspense>
     );
   }
 
@@ -692,253 +716,261 @@ export default function App() {
 
       {/* Main content */}
       <main className="main-panel">
-        {/* Practice quiz */}
-        {activePage === "quiz" && <QuizPage />}
+        <Suspense fallback={<PageLoader />}>
+          {/* Practice quiz */}
+          {activePage === "quiz" && <QuizPage />}
 
-        {/* AI Study Buddy */}
-        {activePage === "study-buddy" && <StudyBuddy />}
+          {/* AI Study Buddy */}
+          {activePage === "study-buddy" && <StudyBuddy />}
 
-        {/* Flashcards */}
-        {activePage === "flashcards" && <Flashcards />}
+          {/* Flashcards */}
+          {activePage === "flashcards" && <Flashcards />}
 
-        {/* Dashboard and courses */}
-        {(activePage === "dashboard" ||
-          activePage === "courses") && (
-          <>
-            {/* Page header */}
-            <header className="topbar">
-              <div>
-                <span className="eyebrow">
-                  {activePage === "dashboard"
-                    ? "Learning overview"
-                    : "Your learning library"}
-                </span>
+          {/* Dashboard and courses */}
+          {(activePage === "dashboard" ||
+            activePage === "courses") && (
+            <>
+              {/* Page header */}
+              <header className="topbar">
+                <div>
+                  <span className="eyebrow">
+                    {activePage === "dashboard"
+                      ? "Learning overview"
+                      : "Your learning library"}
+                  </span>
 
-                <h2 className="page-title">
-                  {activePage === "dashboard"
-                    ? "Welcome back!"
-                    : "My Courses"}
-                </h2>
+                  <h2 className="page-title">
+                    {activePage === "dashboard"
+                      ? "Welcome back!"
+                      : "My Courses"}
+                  </h2>
 
-                <p className="muted">
-                  {activePage === "dashboard"
-                    ? "Keep learning. Every lesson moves you forward."
-                    : "Explore your courses and continue learning."}
-                </p>
-              </div>
+                  <p className="muted">
+                    {activePage === "dashboard"
+                      ? "Keep learning. Every lesson moves you forward."
+                      : "Explore your courses and continue learning."}
+                  </p>
+                </div>
 
-              <input
-                className="search-input"
-                type="search"
-                placeholder="Search courses..."
-                aria-label="Search courses"
-                value={searchQuery}
-                onChange={(event) =>
-                  setSearchQuery(event.target.value)
-                }
-              />
-            </header>
+                <input
+                  className="search-input"
+                  type="search"
+                  placeholder="Search courses..."
+                  aria-label="Search courses"
+                  value={searchQuery}
+                  onChange={(event) =>
+                    setSearchQuery(event.target.value)
+                  }
+                />
+              </header>
 
-            {/* Dashboard overview */}
-            {activePage === "dashboard" && (
-              <>
-                <section
-                  className="stats-grid"
-                  aria-label="Learning statistics"
-                >
-                  <article className="stat-card">
-                    <p>Available courses</p>
-                    <h3>{courses.length}</h3>
-                  </article>
+              {/* Dashboard overview */}
+              {activePage === "dashboard" && (
+                <>
+                  <section
+                    className="stats-grid"
+                    aria-label="Learning statistics"
+                  >
+                    <article className="stat-card">
+                      <p>Available courses</p>
+                      <h3>{courses.length}</h3>
+                    </article>
 
-                  <article className="stat-card">
-                    <p>Completed courses</p>
-                    <h3>{completedCourseCount}</h3>
-                  </article>
+                    <article className="stat-card">
+                      <p>Completed courses</p>
+                      <h3>{completedCourseCount}</h3>
+                    </article>
 
-                  <article className="stat-card">
-                    <p>Overall progress</p>
-                    <h3>{overallProgress}%</h3>
-                  </article>
-                </section>
+                    <article className="stat-card">
+                      <p>Overall progress</p>
+                      <h3>{overallProgress}%</h3>
+                    </article>
+                  </section>
 
-                {/* Quiz performance */}
-                <section
-                  className="quiz-performance-section"
-                  aria-label="AZ-900 quiz performance"
-                >
-                  <div className="section-heading">
-                    <h2>AZ-900 Quiz Performance</h2>
+                  {/* Quiz performance */}
+                  <section
+                    className="quiz-performance-section"
+                    aria-label="AZ-900 quiz performance"
+                  >
+                    <div className="section-heading">
+                      <h2>AZ-900 Quiz Performance</h2>
 
-                    <span className="muted">
-                      Your practice results
-                    </span>
-                  </div>
-
-                  {quizStatsLoading ? (
-                    <p className="muted">
-                      Loading quiz performance...
-                    </p>
-                  ) : (
-                    <div className="stats-grid">
-                      <article className="stat-card">
-                        <p>Quizzes completed</p>
-                        <h3>
-                          {quizPerformance.completedAttempts}
-                        </h3>
-                      </article>
-
-                      <article className="stat-card">
-                        <p>Average score</p>
-                        <h3>
-                          {quizPerformance.averageScore}%
-                        </h3>
-                      </article>
-
-                      <article className="stat-card">
-                        <p>Best score</p>
-                        <h3>
-                          {quizPerformance.bestScore}%
-                        </h3>
-                      </article>
-
-                      <article className="stat-card">
-                        <p>Latest score</p>
-                        <h3>
-                          {quizPerformance.latestScore === null
-                            ? "—"
-                            : `${quizPerformance.latestScore}%`}
-                        </h3>
-                      </article>
+                      <span className="muted">
+                        Your practice results
+                      </span>
                     </div>
-                  )}
 
-                  {!quizStatsLoading &&
-                    quizPerformance.completedAttempts === 0 && (
+                    {quizStatsLoading ? (
                       <p className="muted">
-                        Complete your first practice quiz to start
-                        tracking your performance.
+                        Loading quiz performance...
                       </p>
+                    ) : (
+                      <div className="stats-grid">
+                        <article className="stat-card">
+                          <p>Quizzes completed</p>
+                          <h3>
+                            {quizPerformance.completedAttempts}
+                          </h3>
+                        </article>
+
+                        <article className="stat-card">
+                          <p>Average score</p>
+                          <h3>
+                            {quizPerformance.averageScore}%
+                          </h3>
+                        </article>
+
+                        <article className="stat-card">
+                          <p>Best score</p>
+                          <h3>
+                            {quizPerformance.bestScore}%
+                          </h3>
+                        </article>
+
+                        <article className="stat-card">
+                          <p>Latest score</p>
+                          <h3>
+                            {quizPerformance.latestScore === null
+                              ? "—"
+                              : `${quizPerformance.latestScore}%`}
+                          </h3>
+                        </article>
+                      </div>
                     )}
 
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() => navigateTo("quiz")}
-                  >
-                    Start a practice quiz
-                  </button>
-                </section>
+                    {!quizStatsLoading &&
+                      quizPerformance.completedAttempts === 0 && (
+                        <p className="muted">
+                          Complete your first practice quiz to start
+                          tracking your performance.
+                        </p>
+                      )}
 
-                {/* Topic mastery */}
-                <TopicMastery />
-              </>
-            )}
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => navigateTo("quiz")}
+                    >
+                      Start a practice quiz
+                    </button>
+                  </section>
 
-            {/* Course catalogue */}
-            <section id="course-catalog">
-              <div className="section-heading">
-                <h2>
-                  {activePage === "dashboard"
-                    ? "Explore courses"
-                    : "Course catalog"}
-                </h2>
+                  {/* Topic mastery */}
+                  <TopicMastery />
+                </>
+              )}
 
-                <span className="muted">
-                  {filteredCourses.length} courses
-                </span>
-              </div>
+              {/* Course catalogue */}
+              <section id="course-catalog">
+                <div className="section-heading">
+                  <h2>
+                    {activePage === "dashboard"
+                      ? "Explore courses"
+                      : "Course catalog"}
+                  </h2>
 
-              {filteredCourses.length === 0 ? (
-                <div className="empty-state">
-                  <h3>No courses found</h3>
-                  <p>Try another search term.</p>
+                  <span className="muted">
+                    {filteredCourses.length} courses
+                  </span>
                 </div>
-              ) : (
-                <div className="course-grid">
-                  {filteredCourses.map((course) => {
-                    const courseProgress =
-                      progress[course.id] ?? 0;
 
-                    const completedCount = course.lessons.filter(
-                      (lesson) =>
-                        completedLessons.includes(lesson.id)
-                    ).length;
+                {filteredCourses.length === 0 ? (
+                  <div className="empty-state">
+                    <h3>No courses found</h3>
+                    <p>Try another search term.</p>
+                  </div>
+                ) : (
+                  <div className="course-grid">
+                    {filteredCourses.map((course) => {
+                      const courseProgress =
+                        progress[course.id] ?? 0;
 
-                    const courseIcons: Record<string, string> = {
-                      "python-basics": "🐍",
-                      "data-science": "📊",
-                    };
+                      const completedCount = course.lessons.filter(
+                        (lesson) =>
+                          completedLessons.includes(lesson.id)
+                      ).length;
 
-                    const courseIcon =
-                      courseIcons[course.id] ?? "🤖";
+                      const courseIcons: Record<string, string> = {
+                        "python-basics": "🐍",
+                        "data-science": "📊",
+                        "machine-learning": "🤖",
+                        "cloud-computing": "☁️",
+                        "azure-fundamentals": "🔷",
+                        "artificial-intelligence": "🧠",
+                        "sql-databases": "🗄️",
+                        "data-structures": "⚙️",
+                      };
 
-                    return (
-                      <article
-                        className="course-card"
-                        key={course.id}
-                      >
-                        <div
-                          className="course-icon"
-                          aria-hidden="true"
-                        >
-                          {courseIcon}
-                        </div>
+                      const courseIcon =
+                        courseIcons[course.id] ?? "📘";
 
-                        <h3>{course.title}</h3>
-
-                        <p className="muted">
-                          {course.description}
-                        </p>
-
-                        <p className="muted">
-                          {course.lessons.length} lessons
-                        </p>
-
-                        <p className="muted">
-                          {completedCount} of{" "}
-                          {course.lessons.length} completed
-                        </p>
-
-                        <div
-                          className="progress-track"
-                          role="progressbar"
-                          aria-label={`${course.title} progress`}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          aria-valuenow={courseProgress}
+                      return (
+                        <article
+                          className="course-card"
+                          key={course.id}
                         >
                           <div
-                            className="progress-fill"
-                            style={{
-                              width: `${courseProgress}%`,
-                            }}
-                          />
-                        </div>
+                            className="course-icon"
+                            aria-hidden="true"
+                          >
+                            {courseIcon}
+                          </div>
 
-                        <strong>
-                          {courseProgress}% complete
-                        </strong>
+                          <h3>{course.title}</h3>
 
-                        <button
-                          type="button"
-                          className="primary-button"
-                          onClick={() =>
-                            setSelectedCourseId(course.id)
-                          }
-                        >
-                          {courseProgress === 100
-                            ? "Review course"
-                            : "Continue learning"}
-                        </button>
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          </>
-        )}
+                          <p className="muted">
+                            {course.description}
+                          </p>
+
+                          <p className="muted">
+                            {course.lessons.length} lessons
+                          </p>
+
+                          <p className="muted">
+                            {completedCount} of{" "}
+                            {course.lessons.length} completed
+                          </p>
+
+                          <div
+                            className="progress-track"
+                            role="progressbar"
+                            aria-label={`${course.title} progress`}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={courseProgress}
+                          >
+                            <div
+                              className="progress-fill"
+                              style={{
+                                width: `${courseProgress}%`,
+                              }}
+                            />
+                          </div>
+
+                          <strong>
+                            {courseProgress}% complete
+                          </strong>
+
+                          <button
+                            type="button"
+                            className="primary-button"
+                            onClick={() =>
+                              setSelectedCourseId(course.id)
+                            }
+                          >
+                            {courseProgress === 100
+                              ? "Review course"
+                              : "Continue learning"}
+                          </button>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
+        </Suspense>
 
         {/* Application messages */}
         {message && (
